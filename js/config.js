@@ -1,225 +1,236 @@
 (function(PLUGIN_ID) {
   'use strict';
 
+  // HTMLのIDと完全に一致させて取得
   const container = document.getElementById('table-settings-container');
-  let appFields = {};
+  const addTableBtn = document.getElementById('add-table-btn');
+  const saveBtn = document.getElementById('save-btn');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const bulkCheck = document.getElementById('show-bulk-button');
 
-  const FIELD_CATEGORIES = {
-    TEXT: ['SINGLE_LINE_TEXT', 'MULTI_LINE_TEXT', 'RICH_TEXT', 'LINK'],
-    NUMBER: ['NUMBER', 'CALC'],
-    DATE: ['DATE', 'DATETIME', 'TIME'],
-    CHOICE: ['DROP_DOWN', 'RADIO_BUTTON', 'CHECK_BOX', 'MULTI_SELECT'],
-    ENTITY: ['USER_SELECT', 'ORGANIZATION_SELECT', 'GROUP_SELECT']
-  };
+  let subTableFields = [];
+  let allFields = [];
 
-  const getCategory = (type) => {
-    for (const key in FIELD_CATEGORIES) {
-      if (FIELD_CATEGORIES[key].includes(type)) return key;
+  // アプリのフィールド情報を取得
+  const fetchFields = async () => {
+    try {
+      const resp = await kintone.api(kintone.api.url('/k/v1/app/form/fields', true), 'GET', { app: kintone.app.getId() });
+      allFields = resp.properties;
+      subTableFields = Object.values(resp.properties).filter(f => f.type === 'SUBTABLE');
+    } catch (err) {
+      alert('フィールド情報の取得に失敗しました。');
+      console.error(err);
     }
-    return null;
   };
 
-  async function fetchFields() {
-    const appId = kintone.app.getId() || new URLSearchParams(window.location.search).get('app');
-    const resp = await kintone.api(kintone.api.url('/k/v1/preview/app/form/fields', true), 'GET', { app: appId });
-    appFields = resp.properties;
-    return resp.properties;
-  }
+  // ドロップダウンの選択肢を動的に更新（重複選択防止）
+  const updateTableDropdowns = () => {
+    const selects = document.querySelectorAll('.js-table-code');
+    const selectedValues = Array.from(selects).map(s => s.value).filter(v => v);
 
-  function getUsedFieldsInTable(parentRow, currentSelect) {
-    const used = { srcs: [], dests: [] };
-    parentRow.querySelectorAll('.child-row').forEach(row => {
-      const src = row.querySelector('.mapping-src');
-      const dest = row.querySelector('.mapping-dest');
-      if (src && src !== currentSelect && src.value) used.srcs.push(src.value);
-      if (dest && dest !== currentSelect && dest.value) used.dests.push(dest.value);
+    selects.forEach(select => {
+      const currentVal = select.value;
+      // 選択肢をリセット
+      select.innerHTML = '<option value="">-- 選択してください --</option>';
+
+      subTableFields.forEach(f => {
+        // 自分が選択中の値、または他で選択されていない値のみ表示
+        if (f.code === currentVal || !selectedValues.includes(f.code)) {
+          const option = document.createElement('option');
+          option.value = f.code;
+          option.textContent = `${f.label} (${f.code})`;
+          select.appendChild(option);
+        }
+      });
+      // 値を復元
+      select.value = currentVal;
     });
-    return used;
-  }
+  };
 
-  function updateOptions(select, options, selectedValue, filterFn, excludeList = [], isDest = false) {
-    const currentVal = selectedValue || select.value;
-    select.innerHTML = '';
-    const defaultOpt = document.createElement('option');
-    defaultOpt.text = '-- フィールドを選択 --';
-    defaultOpt.value = '';
-    select.appendChild(defaultOpt);
+  // マッピング行（コピー元→コピー先）の作成
+  const createMappingRow = (parentContainer, tableCode, data) => {
+    const tableField = subTableFields.find(f => f.code === tableCode);
+    if (!tableField) return;
 
-    if (!options) return; // 安全策
-
-    Object.keys(options).forEach(code => {
-      const field = options[code];
-      if (['LABEL', 'SPACER', 'HR', 'FILE'].includes(field.type)) return;
-      if (isDest && (field.type === 'CALC' || field.type === 'LOOKUP' || field.lookup)) return;
-      if (excludeList.includes(code)) return;
-      if (filterFn && !filterFn(field)) return;
-
-      const opt = document.createElement('option');
-      opt.value = code;
-      opt.text = `${field.label} (${code})`;
-      if (code === currentVal) opt.selected = true;
-      select.appendChild(opt);
-    });
-  }
-
-  function refreshAllSelectsInTable(parentRow) {
-    parentRow.querySelectorAll('.child-row').forEach(row => {
-      const src = row.querySelector('.mapping-src');
-      const dest = row.querySelector('.mapping-dest');
-      if (src && src.onRefresh) src.onRefresh();
-      if (dest && dest.onRefresh) dest.onRefresh();
-    });
-  }
-
-  function createFieldMappingRow(parentRow, tableCode, mapping = {}) {
     const row = document.createElement('div');
     row.className = 'child-row';
-    // 【堅牢化】サブテーブルが存在しない場合の考慮
-    const tableDef = appFields[tableCode];
-    const subFields = (tableDef && tableDef.fields) ? tableDef.fields : {};
-    const outerFields = Object.fromEntries(Object.entries(appFields).filter(([_, f]) => f.type !== 'SUBTABLE'));
 
+    // コピー元セレクト
     const srcSelect = document.createElement('select');
-    srcSelect.className = 'kintoneplugin-select mapping-src';
+    srcSelect.className = 'kintoneplugin-select js-src-field';
+    srcSelect.innerHTML = '<option value="">-- コピー元 --</option>';
+    Object.values(tableField.fields).forEach(f => {
+      if (!['SUBTABLE', 'GROUP', 'REFERENCE_TABLE'].includes(f.type)) {
+        const opt = document.createElement('option');
+        opt.value = f.code;
+        opt.textContent = `${f.label} (${f.code})`;
+        srcSelect.appendChild(opt);
+      }
+    });
+
+    // 矢印
+    const arrow = document.createElement('span');
+    arrow.textContent = '→';
+
+    // コピー先セレクト
     const destSelect = document.createElement('select');
-    destSelect.className = 'kintoneplugin-select mapping-dest';
+    destSelect.className = 'kintoneplugin-select js-dest-field';
+    destSelect.innerHTML = '<option value="">-- コピー先 --</option>';
+    Object.values(allFields).forEach(f => {
+      if (!['SUBTABLE', 'GROUP', 'CALC', 'REFERENCE_TABLE'].includes(f.type)) {
+        const opt = document.createElement('option');
+        opt.value = f.code;
+        opt.textContent = `${f.label} (${f.code})`;
+        destSelect.appendChild(opt);
+      }
+    });
 
-    const refreshSrc = () => {
-      const used = getUsedFieldsInTable(parentRow, srcSelect);
-      const destVal = destSelect.value;
-      const destType = (destVal && outerFields[destVal]) ? outerFields[destVal].type : null;
-      updateOptions(srcSelect, subFields, mapping.src, (f) => {
-        if (!destVal || destType === 'SINGLE_LINE_TEXT') return true;
-        return getCategory(f.type) === getCategory(destType);
-      }, used.srcs, false);
-    };
-
-    const refreshDest = () => {
-      const used = getUsedFieldsInTable(parentRow, destSelect);
-      const srcVal = srcSelect.value;
-      const srcType = (srcVal && subFields[srcVal]) ? subFields[srcVal].type : null;
-      updateOptions(destSelect, outerFields, mapping.dest, (f) => {
-        if (!srcVal || f.type === 'SINGLE_LINE_TEXT') return true;
-        return getCategory(f.type) === getCategory(srcType);
-      }, used.dests, true);
-    };
-
-    srcSelect.onchange = () => { mapping.src = srcSelect.value; refreshAllSelectsInTable(parentRow); };
-    destSelect.onchange = () => { mapping.dest = destSelect.value; refreshAllSelectsInTable(parentRow); };
-    srcSelect.onRefresh = refreshSrc;
-    destSelect.onRefresh = refreshDest;
-    refreshSrc(); refreshDest();
-
+    // 削除ボタン
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
-    removeBtn.innerHTML = '&times;';
     removeBtn.className = 'remove-btn';
-    removeBtn.onclick = () => { row.remove(); refreshAllSelectsInTable(parentRow); };
+    removeBtn.textContent = '×';
+    removeBtn.onclick = () => {
+      parentContainer.removeChild(row);
+    };
 
-    row.appendChild(document.createElement('span')).innerText = 'コピー元:';
-    row.appendChild(srcSelect);
-    row.appendChild(document.createElement('span')).innerText = 'コピー先(編集不可):';
-    row.appendChild(destSelect);
-    row.appendChild(removeBtn);
-    return row;
-  }
-
-  function createTableSettingRow(config = {mappings: []}) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'parent-row';
-    const header = document.createElement('div');
-    header.className = 'parent-header';
-    const tables = Object.fromEntries(Object.entries(appFields).filter(([_, f]) => f.type === 'SUBTABLE'));
-    
-    // 【堅牢化】保存されているテーブルコードが既にアプリから消えている場合を考慮
-    if (config.tableCode && !tables[config.tableCode]) {
-      console.warn(`設定されていたテーブル ${config.tableCode} はアプリから削除されています。`);
-      return; 
+    if (data) {
+      srcSelect.value = data.src;
+      destSelect.value = data.dest;
     }
 
+    row.appendChild(srcSelect);
+    row.appendChild(arrow);
+    row.appendChild(destSelect);
+    row.appendChild(removeBtn);
+    parentContainer.appendChild(row);
+  };
+
+  // テーブル設定カードの作成
+  const createTableSettingRow = (data) => {
+    const card = document.createElement('div');
+    card.className = 'parent-row';
+
+    // ヘッダー部分
+    const header = document.createElement('div');
+    header.className = 'parent-header';
+    header.innerHTML = '<span>対象テーブル:</span>';
+
     const tableSelect = document.createElement('select');
-    tableSelect.className = 'kintoneplugin-select table-select';
-    updateOptions(tableSelect, tables, config.tableCode);
+    tableSelect.className = 'kintoneplugin-select js-table-code';
+    header.appendChild(tableSelect);
 
     const removeTableBtn = document.createElement('button');
     removeTableBtn.type = 'button';
-    removeTableBtn.innerText = 'テーブル設定を削除';
     removeTableBtn.className = 'modern-btn btn-remove-table';
-    removeTableBtn.onclick = () => { if(confirm('転記設定をすべて削除しますか？')) wrapper.remove(); };
-
-    header.appendChild(document.createTextNode('対象テーブル: '));
-    header.appendChild(tableSelect);
+    removeTableBtn.textContent = '設定を削除';
+    removeTableBtn.onclick = () => {
+      container.removeChild(card);
+      updateTableDropdowns();
+    };
     header.appendChild(removeTableBtn);
 
-    const childContainer = document.createElement('div');
-    childContainer.className = 'child-container';
+    // マッピングエリア
+    const mappingContainer = document.createElement('div');
+    mappingContainer.className = 'child-container';
+
+    // マッピング追加ボタン
     const addMappingBtn = document.createElement('button');
     addMappingBtn.type = 'button';
-    addMappingBtn.innerText = '＋ フィールドペアを追加';
     addMappingBtn.className = 'add-mapping-btn';
-    childContainer.appendChild(addMappingBtn);
-
-    tableSelect.onchange = () => { childContainer.querySelectorAll('.child-row').forEach(r => r.remove()); };
-
+    addMappingBtn.textContent = '＋ フィールドペアを追加';
     addMappingBtn.onclick = () => {
-      if (!tableSelect.value) return alert('先にサブテーブルを選択してください');
-      childContainer.insertBefore(createFieldMappingRow(wrapper, tableSelect.value), addMappingBtn);
+      if (!tableSelect.value) return alert('先にテーブルを選択してください');
+      createMappingRow(mappingContainer, tableSelect.value);
     };
 
-    if (config.mappings) {
-      config.mappings.forEach(m => {
-        // マッピング先のフィールドが削除されている場合はスキップ
-        const outerFields = Object.fromEntries(Object.entries(appFields).filter(([_, f]) => f.type !== 'SUBTABLE'));
-        if (m.dest && !outerFields[m.dest]) return;
-        childContainer.insertBefore(createFieldMappingRow(wrapper, config.tableCode, m), addMappingBtn);
-      });
+    // イベントリスナー
+    tableSelect.onchange = () => {
+      mappingContainer.innerHTML = ''; // テーブル変更でマッピングリセット
+      updateTableDropdowns();
+    };
+
+    card.appendChild(header);
+    card.appendChild(mappingContainer);
+    card.appendChild(addMappingBtn);
+    container.appendChild(card);
+
+    // 初期データ反映
+    if (data) {
+      // 選択肢更新後に値をセットするために、まずは全選択肢を入れる
+      updateTableDropdowns();
+      tableSelect.value = data.tableCode;
+      
+      // データがある場合のみマッピング生成
+      if (data.mappings) {
+        data.mappings.forEach(m => createMappingRow(mappingContainer, data.tableCode, m));
+      }
+    } else {
+      updateTableDropdowns();
     }
+  };
 
-    wrapper.appendChild(header);
-    wrapper.appendChild(childContainer);
-    container.appendChild(wrapper);
-  }
-
+  // 初期化処理
   fetchFields().then(() => {
-    const savedConf = kintone.plugin.app.getConfig(PLUGIN_ID);
-    if (savedConf.settings) {
-      const settings = JSON.parse(savedConf.settings);
+    const config = kintone.plugin.app.getConfig(PLUGIN_ID);
+    if (config.settings) {
+      const settings = JSON.parse(config.settings);
       settings.forEach(s => createTableSettingRow(s));
-      const bulkCheck = document.getElementById('show-bulk-button');
-      if(bulkCheck) bulkCheck.checked = savedConf.showBulk === 'true';
     }
+    if (config.showBulk === 'true') {
+      if(bulkCheck) bulkCheck.checked = true;
+    }
+
+    // ボタン有効化
+    if(addTableBtn) addTableBtn.onclick = () => createTableSettingRow();
   });
 
-  document.getElementById('add-table-btn').onclick = () => createTableSettingRow();
+  // 保存処理
+  if(saveBtn) {
+    saveBtn.onclick = () => {
+      const settings = [];
+      const rows = container.querySelectorAll('.parent-row');
+      let isValid = true;
 
-  document.getElementById('save-btn').onclick = () => {
-    const settings = [];
-    let hasError = false;
-    document.querySelectorAll('.parent-row').forEach(p => {
-      const tableCode = p.querySelector('.table-select').value;
-      if (!tableCode) return;
-      const mappings = [];
-      const usedDests = new Set();
-      const usedSrcs = new Set();
-      p.querySelectorAll('.child-row').forEach(c => {
-        const src = c.querySelector('.mapping-src').value;
-        const dest = c.querySelector('.mapping-dest').value;
-        if (src && dest) {
-          if (usedSrcs.has(src) || usedDests.has(dest)) {
-            alert(`重複設定があります: ${tableCode}`);
-            hasError = true;
-          }
-          usedSrcs.add(src); usedDests.add(dest);
-          mappings.push({ src, dest });
+      rows.forEach(row => {
+        const tableCode = row.querySelector('.js-table-code').value;
+        if (!tableCode) return;
+
+        const mappings = [];
+        const mapRows = row.querySelectorAll('.child-row');
+        mapRows.forEach(mr => {
+          const src = mr.querySelector('.js-src-field').value;
+          const dest = mr.querySelector('.js-dest-field').value;
+          if (src && dest) mappings.push({ src, dest });
+        });
+
+        if (mappings.length === 0) {
+          alert('設定したテーブルには最低1つのフィールドペアが必要です。');
+          isValid = false;
+          return;
         }
+        settings.push({ tableCode, mappings });
       });
-      if (mappings.length > 0) settings.push({ tableCode, mappings });
-    });
-    if (hasError) return;
-    kintone.plugin.app.setConfig({
-      settings: JSON.stringify(settings),
-      showBulk: String(document.getElementById('show-bulk-button').checked)
-    });
-  };
-  document.getElementById('cancel-btn').onclick = () => history.back();
+
+      if (!isValid) return;
+
+      const configData = {
+        settings: JSON.stringify(settings),
+        showBulk: (bulkCheck && bulkCheck.checked) ? 'true' : 'false'
+      };
+
+      kintone.plugin.app.setConfig(configData, () => {
+        alert('設定を保存しました。');
+        window.location.href = '../../' + kintone.app.getId() + '/config/';
+      });
+    };
+  }
+
+  // キャンセル処理
+  if(cancelBtn) {
+    cancelBtn.onclick = () => {
+      window.location.href = '../../' + kintone.app.getId() + '/config/';
+    };
+  }
+
 })(kintone.$PLUGIN_ID);
