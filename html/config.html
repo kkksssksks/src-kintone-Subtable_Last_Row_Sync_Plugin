@@ -1,0 +1,64 @@
+<section class="settings">
+  <h2 class="settings-title">サブテーブル転記設定</h2>
+  <p class="settings-description">
+    各サブテーブルの最下行を特定のフィールドに同期する設定を行います。<br>
+    ※コピー元とコピー先は、互換性のあるフィールドカテゴリーのみ選択可能です。
+  </p>
+
+  <div id="table-settings-container">
+    </div>
+
+  <div class="add-table-container">
+    <button type="button" id="add-table-btn" class="modern-btn btn-add">＋ テーブル設定を追加</button>
+  </div>
+
+  <hr class="separator">
+
+  <div class="global-settings">
+    <div class="toggle-container">
+      <span class="toggle-label">一覧画面に「一括更新ボタン」を表示する</span>
+      <label class="modern-switch">
+        <input type="checkbox" id="show-bulk-button">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="footer-buttons">
+    <button type="button" id="save-btn" class="modern-btn btn-save">設定を保存する</button>
+    <button type="button" id="cancel-btn" class="modern-btn btn-cancel">キャンセル</button>
+  </div>
+
+  <div class="manual-section">
+    <details>
+      <summary class="manual-summary">プラグインの仕様・使いかたを確認する</summary>
+      <div class="manual-content">
+        <h3>1. 基本的な使いかた</h3>
+        <ul>
+          <li><strong>設定:</strong> 対象の「サブテーブル」を選び、最下行の値を同期するフィールドペアを設定します。</li>
+          <li><strong>反映時期:</strong> サブテーブル入力時（リアルタイム）およびレコード保存時に転記されます。</li>
+        </ul>
+
+        <h3>2. 重要な仕様</h3>
+        <ul>
+          <li><strong>フィールドロック:</strong> データ整合性を保つため、コピー先に指定したフィールドは画面上で編集不可になります。ただし、<strong>ルックアップフィールド</strong>は手動取得が必要なため、編集可能なまま維持されます。</li>
+          <li><strong>型の互換性:</strong> 基本的に同じカテゴリー（数値なら数値など）の間でのみ設定可能です。ただし、コピー先が「文字列（1行）」であれば、どの型のフィールドからでも転記できます。</li>
+          <li><strong>選択肢の不整合防止:</strong> ドロップダウン等でコピー先に存在しない値がコピー元で選ばれた場合、エラー防止のため「反映をスキップ」または「存在する値のみを抽出」します。</li>
+          <li><strong>重複設定の禁止:</strong> 同一テーブル設定内で、一度使用したフィールドを再度指定することはできません。</li>
+        </ul>
+
+        <h3>3. 非対応・制限のあるフィールド</h3>
+        <ul>
+          <li><strong>添付ファイル:</strong> 転記対象外です。</li>
+          <li><strong>計算・ルックアップ:</strong> これらはシステムが自動制御するため、<strong>コピー先（転記先）に指定することはできません。</strong></li>
+          <li><strong>UIパーツ:</strong> ラベル、スペース、罫線フィールドは選択肢に表示されません。</li>
+        </ul>
+
+        <h3>4. 一括更新機能</h3>
+        <ul>
+          <li>現在表示されている全レコードに対し、一括で転記処理を実行します。レコード件数が1万件を超える大規模アプリでも動作可能です。</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</section>

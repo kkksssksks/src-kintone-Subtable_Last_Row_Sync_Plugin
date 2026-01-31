@@ -1,0 +1,29 @@
+{
+  "manifest_version": 1,
+  "version": "1.0.0",
+  "type": "APP",
+  "name": {
+    "ja": "サブテーブル最下行転記プラグイン",
+    "en": "Subtable Last Row Sync Plugin"
+  },
+  "description": {
+    "ja": "サブテーブルの最下行を外部フィールドに自動転記します。一括更新機能付き。",
+    "en": "Automatically syncs the last row of a subtable to external fields."
+  },
+  "icon": "image/icon.png",
+  "desktop": {
+    "js": [
+      "js/desktop.js"
+    ],
+    "css": []
+  },
+  "config": {
+    "html": "html/config.html",
+    "js": [
+      "js/config.js"
+    ],
+    "css": [
+      "css/config.css"
+    ]
+  }
+}
