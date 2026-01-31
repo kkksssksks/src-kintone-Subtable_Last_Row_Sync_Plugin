@@ -1,7 +1,7 @@
 (function(PLUGIN_ID) {
   'use strict';
 
-  // HTMLのIDと完全に一致させて取得
+  // 要素の取得
   const container = document.getElementById('table-settings-container');
   const addTableBtn = document.getElementById('add-table-btn');
   const saveBtn = document.getElementById('save-btn');
@@ -23,26 +23,56 @@
     }
   };
 
-  // ドロップダウンの選択肢を動的に更新（重複選択防止）
+  // Helper: オプション要素作成
+  const createOption = (value, text) => {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = text;
+    return opt;
+  };
+
+  // コピー先フィールドのドロップダウンを動的に更新（重複選択防止）
+  const updateDestDropdowns = () => {
+    // 全てのコピー先セレクトボックスを取得
+    const selects = document.querySelectorAll('.js-dest-field');
+    // 現在選択されている値を収集（自分自身は除くため、ループ内で処理）
+    const allSelectedValues = Array.from(selects).map(s => s.value).filter(v => v);
+
+    selects.forEach(select => {
+      const currentVal = select.value;
+      
+      // 子要素をクリアして再構築
+      while (select.firstChild) select.removeChild(select.firstChild);
+      select.appendChild(createOption('', '-- コピー先 --'));
+
+      Object.values(allFields).forEach(f => {
+        if (!['SUBTABLE', 'GROUP', 'CALC', 'REFERENCE_TABLE'].includes(f.type)) {
+          // 「自分が選択中の値」または「他のどこでも選択されていない値」のみを表示
+          // ※ currentVal === f.code を条件に加えることで、選択済みの値が消えるのを防ぐ
+          if (f.code === currentVal || !allSelectedValues.includes(f.code)) {
+            select.appendChild(createOption(f.code, `${f.label} (${f.code})`));
+          }
+        }
+      });
+      select.value = currentVal;
+    });
+  };
+
+  // 対象テーブルのドロップダウンを動的に更新（重複選択防止）
   const updateTableDropdowns = () => {
     const selects = document.querySelectorAll('.js-table-code');
     const selectedValues = Array.from(selects).map(s => s.value).filter(v => v);
 
     selects.forEach(select => {
       const currentVal = select.value;
-      // 選択肢をリセット
-      select.innerHTML = '<option value="">-- 選択してください --</option>';
+      while (select.firstChild) select.removeChild(select.firstChild);
+      select.appendChild(createOption('', '-- 選択してください --'));
 
       subTableFields.forEach(f => {
-        // 自分が選択中の値、または他で選択されていない値のみ表示
         if (f.code === currentVal || !selectedValues.includes(f.code)) {
-          const option = document.createElement('option');
-          option.value = f.code;
-          option.textContent = `${f.label} (${f.code})`;
-          select.appendChild(option);
+          select.appendChild(createOption(f.code, `${f.label} (${f.code})`));
         }
       });
-      // 値を復元
       select.value = currentVal;
     });
   };
@@ -58,13 +88,10 @@
     // コピー元セレクト
     const srcSelect = document.createElement('select');
     srcSelect.className = 'kintoneplugin-select js-src-field';
-    srcSelect.innerHTML = '<option value="">-- コピー元 --</option>';
+    srcSelect.appendChild(createOption('', '-- コピー元 --'));
     Object.values(tableField.fields).forEach(f => {
       if (!['SUBTABLE', 'GROUP', 'REFERENCE_TABLE'].includes(f.type)) {
-        const opt = document.createElement('option');
-        opt.value = f.code;
-        opt.textContent = `${f.label} (${f.code})`;
-        srcSelect.appendChild(opt);
+        srcSelect.appendChild(createOption(f.code, `${f.label} (${f.code})`));
       }
     });
 
@@ -72,18 +99,14 @@
     const arrow = document.createElement('span');
     arrow.textContent = '→';
 
-    // コピー先セレクト
+    // コピー先セレクト（選択肢はupdateDestDropdownsで後から注入・管理される）
     const destSelect = document.createElement('select');
     destSelect.className = 'kintoneplugin-select js-dest-field';
-    destSelect.innerHTML = '<option value="">-- コピー先 --</option>';
-    Object.values(allFields).forEach(f => {
-      if (!['SUBTABLE', 'GROUP', 'CALC', 'REFERENCE_TABLE'].includes(f.type)) {
-        const opt = document.createElement('option');
-        opt.value = f.code;
-        opt.textContent = `${f.label} (${f.code})`;
-        destSelect.appendChild(opt);
-      }
-    });
+    // 初期表示用に空の選択肢だけ入れておく
+    destSelect.appendChild(createOption('', '-- コピー先 --'));
+    
+    // 変更時に他のセレクトボックスの選択肢を更新
+    destSelect.onchange = () => updateDestDropdowns();
 
     // 削除ボタン
     const removeBtn = document.createElement('button');
@@ -92,18 +115,25 @@
     removeBtn.textContent = '×';
     removeBtn.onclick = () => {
       parentContainer.removeChild(row);
+      updateDestDropdowns(); // 削除された選択肢を解放
     };
-
-    if (data) {
-      srcSelect.value = data.src;
-      destSelect.value = data.dest;
-    }
 
     row.appendChild(srcSelect);
     row.appendChild(arrow);
     row.appendChild(destSelect);
     row.appendChild(removeBtn);
     parentContainer.appendChild(row);
+
+    // 行を追加した後、全ドロップダウンを更新して整合性をとる
+    updateDestDropdowns();
+
+    // データがある場合は値をセット（updateDestDropdownsの後で行う必要がある）
+    if (data) {
+      srcSelect.value = data.src;
+      destSelect.value = data.dest;
+      // 値をセットしたことによる他への影響を反映させるため再度更新
+      updateDestDropdowns();
+    }
   };
 
   // テーブル設定カードの作成
@@ -114,7 +144,10 @@
     // ヘッダー部分
     const header = document.createElement('div');
     header.className = 'parent-header';
-    header.innerHTML = '<span>対象テーブル:</span>';
+    
+    const label = document.createElement('span');
+    label.textContent = '対象テーブル:';
+    header.appendChild(label);
 
     const tableSelect = document.createElement('select');
     tableSelect.className = 'kintoneplugin-select js-table-code';
@@ -127,6 +160,8 @@
     removeTableBtn.onclick = () => {
       container.removeChild(card);
       updateTableDropdowns();
+      // テーブルごと消えるので、その中にあったフィールド設定も解放する必要がある
+      updateDestDropdowns(); 
     };
     header.appendChild(removeTableBtn);
 
@@ -144,10 +179,12 @@
       createMappingRow(mappingContainer, tableSelect.value);
     };
 
-    // イベントリスナー
+    // テーブル変更時のイベント
     tableSelect.onchange = () => {
-      mappingContainer.innerHTML = ''; // テーブル変更でマッピングリセット
+      // テーブルが変わったらマッピングはリセット（矛盾するため）
+      while (mappingContainer.firstChild) mappingContainer.removeChild(mappingContainer.firstChild);
       updateTableDropdowns();
+      updateDestDropdowns(); // マッピングが消えたので選択肢解放
     };
 
     card.appendChild(header);
@@ -157,11 +194,9 @@
 
     // 初期データ反映
     if (data) {
-      // 選択肢更新後に値をセットするために、まずは全選択肢を入れる
       updateTableDropdowns();
       tableSelect.value = data.tableCode;
       
-      // データがある場合のみマッピング生成
       if (data.mappings) {
         data.mappings.forEach(m => createMappingRow(mappingContainer, data.tableCode, m));
       }
@@ -181,7 +216,6 @@
       if(bulkCheck) bulkCheck.checked = true;
     }
 
-    // ボタン有効化
     if(addTableBtn) addTableBtn.onclick = () => createTableSettingRow();
   });
 
@@ -221,7 +255,8 @@
 
       kintone.plugin.app.setConfig(configData, () => {
         alert('設定を保存しました。');
-        window.location.href = '../../' + kintone.app.getId() + '/config/';
+        // 修正: プラグイン一覧へ戻る
+        window.location.href = '../../' + kintone.app.getId() + '/plugin/#/';
       });
     };
   }
@@ -229,7 +264,7 @@
   // キャンセル処理
   if(cancelBtn) {
     cancelBtn.onclick = () => {
-      window.location.href = '../../' + kintone.app.getId() + '/config/';
+      window.location.href = '../../' + kintone.app.getId() + '/plugin/#/';
     };
   }
 
