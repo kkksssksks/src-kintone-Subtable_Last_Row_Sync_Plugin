@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "APP",
   "name": {
     "ja": "サブテーブル最下行転記プラグイン",
@@ -8,7 +8,11 @@
   },
   "description": {
     "ja": "サブテーブルの最下行を外部フィールドに自動転記します。一括更新機能付き。",
-    "en": "Automatically syncs the last row of a subtable to external fields."
+    "en": "Automatically syncs the last row of a subtable to external fields. Includes bulk update feature."
+  },
+  "homepage_url": {
+    "ja": "https://silken-ruby-e8f.notion.site/2f6d5b22ccaf8054ad90ee01a972a48b",
+    "en": "https://silken-ruby-e8f.notion.site/2f6d5b22ccaf8054ad90ee01a972a48b"
   },
   "icon": "image/icon.png",
   "desktop": {
