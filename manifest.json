@@ -11,8 +11,8 @@
     "en": "Automatically syncs the last row of a subtable to external fields. Includes bulk update feature."
   },
   "homepage_url": {
-    "ja": "https://silken-ruby-e8f.notion.site/2f6d5b22ccaf8054ad90ee01a972a48b",
-    "en": "https://silken-ruby-e8f.notion.site/2f6d5b22ccaf8054ad90ee01a972a48b"
+    "ja": "https://github.com/kkksssksks/src-kintone-Subtable_Last_Row_Sync_Plugin",
+    "en": "https://github.com/kkksssksks/src-kintone-Subtable_Last_Row_Sync_Plugin"
   },
   "icon": "image/icon.png",
   "mobile": {
