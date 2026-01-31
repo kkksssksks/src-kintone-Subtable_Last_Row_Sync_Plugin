@@ -55,12 +55,42 @@
   background: #fff;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  transition: background-color 0.2s, transform 0.2s; /* アニメーション追加 */
 }
+/* ドラッグ中のスタイル */
+.child-row.dragging {
+  opacity: 0.5;
+  background-color: #e3f2fd;
+  border: 2px dashed #3498db;
+}
+
 .child-row span {
   font-size: 1.2em;
   color: #bdc3c7;
   font-weight: bold;
   margin: 0 5px;
+}
+
+/* ドラッグハンドル（つまみ） */
+.drag-handle {
+  cursor: grab;
+  color: #b0c4de;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 5px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+}
+.drag-handle:hover {
+  color: #3498db;
+}
+.drag-handle::before {
+  content: "⋮⋮"; /* 6点リーダー風の表示 */
+  letter-spacing: 2px;
+}
+.child-row.dragging .drag-handle {
+  cursor: grabbing;
 }
 
 /* モダン・セレクトボックス (SVG矢印付き) */

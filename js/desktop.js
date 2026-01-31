@@ -5,15 +5,51 @@
   if (!conf.settings) return;
   const settings = JSON.parse(conf.settings);
 
+  // --- 多言語対応 (i18n) ---
+  const resources = {
+    ja: {
+      modal_title: '一括更新中 (Ver 1.2)',
+      status_prepare: '準備中...',
+      status_progress: '{current} / {total} 件 完了',
+      status_error: 'エラースキップ: {count} 件',
+      btn_bulk: 'サブテーブル最下行を一括反映',
+      btn_close: '閉じる',
+      confirm_run: '絞り込み中の全レコードを一括更新しますか？',
+      alert_no_target: '更新対象のレコードがありません。',
+      alert_complete: '一括更新が完了しました！',
+      err_fetch: 'フィールド情報の取得に失敗しました',
+      err_get_record: 'レコード取得失敗: '
+    },
+    en: {
+      modal_title: 'Bulk Update (Ver 1.2)',
+      status_prepare: 'Preparing...',
+      status_progress: '{current} / {total} Completed',
+      status_error: 'Skipped Errors: {count}',
+      btn_bulk: 'Sync Last Row (Bulk)',
+      btn_close: 'Close',
+      confirm_run: 'Update all filtered records?',
+      alert_no_target: 'No records to update.',
+      alert_complete: 'Bulk update completed!',
+      err_fetch: 'Failed to fetch field info.',
+      err_get_record: 'Failed to get records: '
+    }
+  };
+  const lang = kintone.getLoginUser().language === 'ja' ? 'ja' : 'en';
+  const i18n = resources[lang];
+
   let fieldDefs = {};
   let lastExecTime = 0;
 
-  // フィールド定義取得（非同期で行うが、イベント登録は待たない）
+  // モバイル・デスクトップ共通でアプリIDを取得
+  const getAppId = () => {
+    return (kintone.mobile && kintone.mobile.app.getId()) || kintone.app.getId();
+  };
+
   const fetchFieldDefinitions = async () => {
     try {
-      const resp = await kintone.api(kintone.api.url('/k/v1/app/form/fields', true), 'GET', { app: kintone.app.getId() });
+      const resp = await kintone.api(kintone.api.url('/k/v1/app/form/fields', true), 'GET', { app: getAppId() });
       fieldDefs = resp.properties;
-    } catch (err) { console.error('フィールド定義取得失敗:', err); }
+    } catch (err) { console.error(i18n.err_fetch, err); }
   };
 
   const getSafeString = (val) => {
@@ -55,7 +91,6 @@
     const now = Date.now();
     if (now - lastExecTime < 50) return;
     lastExecTime = now;
-    // fieldDefsがまだ取得できていない場合でも、最低限の文字列転記は試みる（エラー回避）
     
     settings.forEach(s => {
       const tableField = record[s.tableCode];
@@ -65,14 +100,8 @@
 
       s.mappings.forEach(m => {
         if (!record[m.dest]) return;
-        
         const destDef = fieldDefs[m.dest];
-        // 定義取得前か、定義がない場合は文字列として安全に処理
-        if (!destDef) {
-           // まだ定義がない場合は一旦スキップするか、単純コピーを試みる
-           // ここでは定義ロード待ちによる不整合を防ぐため、定義がある場合のみ高度な型変換を行う
-           return; 
-        }
+        if (!destDef) return;
 
         let finalVal;
         if (isTableEmpty) {
@@ -81,7 +110,6 @@
           const srcField = lastRow[m.src];
           if (!srcField) return;
           const srcVal = srcField.value;
-          
           if (destDef.type === 'SINGLE_LINE_TEXT') {
             finalVal = getSafeString(srcVal);
           } else {
@@ -97,110 +125,154 @@
     settings.forEach(s => { s.mappings.forEach(m => { if (record[m.dest]) record[m.dest].disabled = true; }); });
   };
 
-  // セキュアコーディング対応: innerHTMLを使わずDOM構築でモーダルを作成
+  // --- Progress Modal with Detailed Error Log ---
   const showProgressModal = () => {
     const overlay = document.createElement('div');
     overlay.id = 'plugin-progress-modal';
     overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; display:flex; justify-content:center; align-items:center;';
 
     const container = document.createElement('div');
-    container.style.cssText = 'background:#fff; padding:30px; border-radius:8px; text-align:center; min-width:400px; box-shadow:0 10px 25px rgba(0,0,0,0.2);';
+    container.style.cssText = 'background:#fff; padding:30px; border-radius:8px; text-align:center; min-width:450px; max-width:90%; box-shadow:0 10px 25px rgba(0,0,0,0.2);';
 
     const title = document.createElement('h3');
     title.style.cssText = 'margin:0 0 10px; color:#2c3e50;';
-    title.textContent = '一括更新中';
+    title.textContent = i18n.modal_title;
     
     const statusText = document.createElement('p');
     statusText.id = 'plugin-progress-text';
     statusText.style.cssText = 'color:#7f8c8d; font-size:14px; margin-bottom:5px;';
-    statusText.textContent = '準備中...';
+    statusText.textContent = i18n.status_prepare;
 
     const barWrap = document.createElement('div');
-    barWrap.style.cssText = 'width:100%; background:#ecf0f1; height:10px; border-radius:5px; overflow:hidden;';
+    barWrap.style.cssText = 'width:100%; background:#ecf0f1; height:10px; border-radius:5px; overflow:hidden; margin-bottom:15px;';
     
     const bar = document.createElement('div');
     bar.id = 'plugin-progress-bar';
     bar.style.cssText = 'width:0%; height:100%; background:#3498db; transition:width 0.3s;';
     barWrap.appendChild(bar);
 
-    const errorText = document.createElement('p');
-    errorText.id = 'plugin-error-count';
-    errorText.style.cssText = 'color:#e74c3c; font-size:12px; margin-top:10px; display:none;';
-    errorText.textContent = 'エラースキップ: 0件';
+    // エラー詳細表示エリア
+    const errorLogArea = document.createElement('div');
+    errorLogArea.id = 'plugin-error-log';
+    errorLogArea.style.cssText = 'display:none; text-align:left; background:#fdf0f0; border:1px solid #e74c3c; padding:10px; height:100px; overflow-y:auto; font-size:12px; color:#c0392b; margin-bottom:10px; border-radius:4px;';
 
-    container.appendChild(title);
-    container.appendChild(statusText);
-    container.appendChild(barWrap);
-    container.appendChild(errorText);
+    const errorCountText = document.createElement('p');
+    errorCountText.id = 'plugin-error-count';
+    errorCountText.style.cssText = 'color:#e74c3c; font-size:12px; margin-top:0; display:none; font-weight:bold;';
+    errorCountText.textContent = i18n.status_error.replace('{count}', '0');
+
+    // 閉じるボタン（完了時用）
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'plugin-modal-close';
+    closeBtn.textContent = i18n.btn_close;
+    closeBtn.style.cssText = 'display:none; margin:0 auto; padding:8px 20px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;';
+    closeBtn.onclick = closeProgressModal;
+
+    container.append(title, statusText, barWrap, errorCountText, errorLogArea, closeBtn);
     overlay.appendChild(container);
     document.body.appendChild(overlay);
+  };
+
+  const addErrorLog = (recordId, message) => {
+    const area = document.getElementById('plugin-error-log');
+    if(area) {
+      area.style.display = 'block';
+      const line = document.createElement('div');
+      line.textContent = `Record ID ${recordId}: ${message}`;
+      line.style.borderBottom = '1px solid #ecc';
+      line.style.padding = '2px 0';
+      area.appendChild(line);
+    }
   };
 
   const updateProgress = (current, total, errorCount) => {
     const text = document.getElementById('plugin-progress-text');
     const bar = document.getElementById('plugin-progress-bar');
     const errText = document.getElementById('plugin-error-count');
-    if (text) text.textContent = `${total}件中 ${current}件 完了`;
+    
+    if (text) text.textContent = i18n.status_progress.replace('{current}', current).replace('{total}', total);
     if (bar) bar.style.width = `${(current / total) * 100}%`;
     if (errorCount > 0 && errText) {
       errText.style.display = 'block';
-      errText.textContent = `エラースキップ: ${errorCount}件`;
+      errText.textContent = i18n.status_error.replace('{count}', errorCount);
     }
+  };
+
+  const finishProgress = () => {
+    const closeBtn = document.getElementById('plugin-modal-close');
+    if(closeBtn) closeBtn.style.display = 'block';
+    alert(i18n.alert_complete);
   };
 
   const closeProgressModal = () => {
     const el = document.getElementById('plugin-progress-modal');
     if (el) document.body.removeChild(el);
+    location.reload();
   };
 
-  // メイン処理
-  fetchFieldDefinitions(); // 定義取得を開始（待機はしない）
+  fetchFieldDefinitions();
 
-  // イベント登録（即時実行）
-  kintone.events.on(['app.record.create.show', 'app.record.edit.show', 'app.record.index.edit.show'], (e) => {
-    // 編集画面表示時は、定義取得を待たずにとにかくロックをかける（設定値ベースで動作するため定義不要）
+  // --- イベント登録 (デスクトップ & モバイル両対応) ---
+  const eventsShow = [
+    'app.record.create.show', 'app.record.edit.show', 'app.record.index.edit.show',
+    'mobile.app.record.create.show', 'mobile.app.record.edit.show'
+  ];
+  
+  kintone.events.on(eventsShow, (e) => {
+    // 編集画面表示時は設定値ベースで即座にロック
     lockDestFields(e.record);
     return e;
   });
 
   let cEvents = [];
   settings.forEach(s => {
+    // デスクトップ用
     cEvents.push(`app.record.create.change.${s.tableCode}`, `app.record.edit.change.${s.tableCode}`);
-    s.mappings.forEach(m => { cEvents.push(`app.record.create.change.${m.src}`, `app.record.edit.change.${m.src}`); });
+    s.mappings.forEach(m => cEvents.push(`app.record.create.change.${m.src}`, `app.record.edit.change.${m.src}`));
+    // モバイル用
+    cEvents.push(`mobile.app.record.create.change.${s.tableCode}`, `mobile.app.record.edit.change.${s.tableCode}`);
+    s.mappings.forEach(m => cEvents.push(`mobile.app.record.create.change.${m.src}`, `mobile.app.record.edit.change.${m.src}`));
   });
 
-  // 変更時・保存時イベント
-  kintone.events.on(cEvents, (e) => { syncLastRow(e.record); return e; });
-  kintone.events.on(['app.record.create.submit', 'app.record.edit.submit', 'app.record.index.edit.submit'], (e) => { syncLastRow(e.record); return e; });
+  const eventsSubmit = [
+    'app.record.create.submit', 'app.record.edit.submit', 'app.record.index.edit.submit',
+    'mobile.app.record.create.submit', 'mobile.app.record.edit.submit'
+  ];
 
-  // 一括更新ボタン
+  kintone.events.on([...cEvents, ...eventsSubmit], (e) => { syncLastRow(e.record); return e; });
+
+  // --- 一括更新 (デスクトップ版のみ) ---
   kintone.events.on('app.record.index.show', (event) => {
     if (conf.showBulk !== 'true' || document.getElementById('bulk-sync-btn')) return;
+    
+    // ヘッダーメニューがない場合（モバイル等）はスキップ
+    const space = kintone.app.getHeaderMenuSpaceElement();
+    if (!space) return;
+
     const btn = document.createElement('button');
     btn.id = 'bulk-sync-btn';
-    btn.textContent = 'サブテーブル最下行を一括反映';
+    btn.textContent = i18n.btn_bulk;
     btn.className = 'kintoneplugin-button-dialog-ok';
     btn.style.cssText = 'margin-left:15px; border-radius:4px; height:48px; padding:0 32px; background-color:#3498db; color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:14px; box-sizing:border-box;';
     btn.onmouseover = () => { btn.style.backgroundColor = '#2980b9'; };
     btn.onmouseout = () => { btn.style.backgroundColor = '#3498db'; };
 
     btn.onclick = async () => {
-      if (!confirm('絞り込み中の全レコードを一括更新しますか？')) return;
+      if (!confirm(i18n.confirm_run)) return;
       showProgressModal();
       
-      // 一括更新時は定義が必要なので、ここで確実に待つ
       if (Object.keys(fieldDefs).length === 0) {
          try {
-            const resp = await kintone.api(kintone.api.url('/k/v1/app/form/fields', true), 'GET', { app: kintone.app.getId() });
+            const resp = await kintone.api(kintone.api.url('/k/v1/app/form/fields', true), 'GET', { app: getAppId() });
             fieldDefs = resp.properties;
          } catch(e) {
             closeProgressModal();
-            alert('フィールド情報の取得に失敗しました');
+            alert(i18n.err_fetch);
             return;
          }
       }
 
-      const appId = kintone.app.getId();
+      const appId = getAppId();
       const condition = kintone.app.getQueryCondition() || '';
       const baseQuery = condition ? `(${condition})` : '';
       let allRecords = [];
@@ -216,9 +288,9 @@
           allRecords = allRecords.concat(resp.records);
           lastId = resp.records[resp.records.length - 1].$id.value;
         }
-      } catch(e) { closeProgressModal(); return alert('取得失敗: ' + e.message); }
+      } catch(e) { closeProgressModal(); return alert(i18n.err_get_record + e.message); }
 
-      if (allRecords.length === 0) { closeProgressModal(); return alert('更新対象なし'); }
+      if (allRecords.length === 0) { closeProgressModal(); return alert(i18n.alert_no_target); }
 
       const updatePayloads = [];
       allRecords.forEach(rec => {
@@ -246,21 +318,24 @@
           await kintone.api(kintone.api.url('/k/v1/records', true), 'PUT', { app: appId, records: safeChunk });
           processedCount += chunk.length;
         } catch (bulkErr) {
+          // エラー時: 1件ずつリトライしてエラー箇所を特定
           for (const singleRec of safeChunk) {
             try {
               await kintone.api(kintone.api.url('/k/v1/record', true), 'PUT', { app: appId, ...singleRec });
               processedCount++;
-            } catch (singleErr) { errorCount++; processedCount++; }
+            } catch (singleErr) { 
+              errorCount++; 
+              processedCount++; 
+              // 画面にログ出力
+              addErrorLog(singleRec.id, singleErr.message || JSON.stringify(singleErr));
+            }
             updateProgress(processedCount, allRecords.length, errorCount);
           }
         }
         updateProgress(processedCount, allRecords.length, errorCount);
       }
-      closeProgressModal();
-      alert('一括更新完了！' + (errorCount > 0 ? ` (${errorCount}件スキップ)` : ''));
-      location.reload();
+      finishProgress();
     };
-    const space = kintone.app.getHeaderMenuSpaceElement();
-    if (space) space.appendChild(btn);
+    space.appendChild(btn);
   });
 })(kintone.$PLUGIN_ID);
