@@ -8,7 +8,7 @@
   // --- 多言語対応 (i18n) ---
   const resources = {
     ja: {
-      modal_title: '一括更新中 (Ver 1.2)',
+      modal_title: '一括更新中 (Ver 1.2.1)',
       status_prepare: '準備中...',
       status_progress: '{current} / {total} 件 完了',
       status_error: 'エラースキップ: {count} 件',
@@ -21,7 +21,7 @@
       err_get_record: 'レコード取得失敗: '
     },
     en: {
-      modal_title: 'Bulk Update (Ver 1.2)',
+      modal_title: 'Bulk Update (Ver 1.2.1)',
       status_prepare: 'Preparing...',
       status_progress: '{current} / {total} Completed',
       status_error: 'Skipped Errors: {count}',
@@ -53,7 +53,9 @@
   };
 
   const getSafeString = (val) => {
-    if (val === undefined || val === null || val === "") return "";
+    // v1.2.1: 計算フィールドのエラー値(#N/A!)を空文字として扱う
+    if (val === undefined || val === null || val === "" || val === "#N/A!") return "";
+    
     if (Array.isArray(val)) {
       if (val.length === 0) return "";
       return val.map(item => (typeof item === 'object') ? (item.name || item.code || JSON.stringify(item)) : item).join(', ');
@@ -68,7 +70,9 @@
     const isArrayType = ['CHECK_BOX', 'MULTI_SELECT', 'CATEGORY', 'USER_SELECT', 'ORGANIZATION_SELECT', 'GROUP_SELECT'].includes(dType);
     const hasOptions = ['DROP_DOWN', 'RADIO_BUTTON', 'CHECK_BOX', 'MULTI_SELECT'].includes(dType);
 
-    const isEmpty = srcVal === null || srcVal === undefined || srcVal === "" || (Array.isArray(srcVal) && srcVal.length === 0);
+    // v1.2.1: 計算フィールドのエラー値(#N/A!)を空として扱う
+    const isEmpty = srcVal === null || srcVal === undefined || srcVal === "" || srcVal === "#N/A!" || (Array.isArray(srcVal) && srcVal.length === 0);
+    
     if (isEmpty) return isArrayType ? [] : null;
 
     let result = isArrayType ? [] : null;

@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "version": "1.2",
+  "version": "1.2.1",
   "type": "APP",
   "name": {
     "ja": "サブテーブル最下行転記プラグイン",
