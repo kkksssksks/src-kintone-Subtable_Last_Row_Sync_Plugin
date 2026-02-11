@@ -8,7 +8,7 @@
   // --- 多言語対応 (i18n) ---
   const resources = {
     ja: {
-      modal_title: '一括更新中 (Ver 1.2.1)',
+      modal_title: '一括更新中...',
       status_prepare: '準備中...',
       status_progress: '{current} / {total} 件 完了',
       status_error: 'エラースキップ: {count} 件',
@@ -21,7 +21,7 @@
       err_get_record: 'レコード取得失敗: '
     },
     en: {
-      modal_title: 'Bulk Update (Ver 1.2.1)',
+      modal_title: 'Bulk Update...',
       status_prepare: 'Preparing...',
       status_progress: '{current} / {total} Completed',
       status_error: 'Skipped Errors: {count}',
@@ -29,7 +29,7 @@
       btn_close: 'Close',
       confirm_run: 'Update all filtered records?',
       alert_no_target: 'No records to update.',
-      alert_complete: 'Bulk update completed!',
+      alert_complete: 'Bulk update completed!\n\nPress OK to reload the page.',
       err_fetch: 'Failed to fetch field info.',
       err_get_record: 'Failed to get records: '
     }
@@ -129,88 +129,193 @@
     settings.forEach(s => { s.mappings.forEach(m => { if (record[m.dest]) record[m.dest].disabled = true; }); });
   };
 
-  // --- Progress Modal with Detailed Error Log ---
+  // --- Progress Modal with Detailed Error Log (信頼性向上版) ---
+  
+  // モーダル要素への直接参照を保持（グローバルスコープ）
+  let modalElements = {
+    overlay: null,
+    progressText: null,
+    progressBar: null,
+    errorLog: null,
+    errorCount: null,
+    closeBtn: null
+  };
+
+  /**
+   * モーダルを表示し、要素への参照を保持
+   * @returns {Promise<void>}
+   */
   const showProgressModal = () => {
-    const overlay = document.createElement('div');
-    overlay.id = 'plugin-progress-modal';
-    overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; display:flex; justify-content:center; align-items:center;';
+    console.log('[Plugin] showProgressModal called');
+    return new Promise((resolve) => {
+      // 既存のモーダルがあれば削除
+      if (modalElements.overlay && modalElements.overlay.parentNode) {
+        console.log('[Plugin] Removing existing modal');
+        modalElements.overlay.parentNode.removeChild(modalElements.overlay);
+      }
 
-    const container = document.createElement('div');
-    container.style.cssText = 'background:#fff; padding:30px; border-radius:8px; text-align:center; min-width:450px; max-width:90%; box-shadow:0 10px 25px rgba(0,0,0,0.2);';
+      const overlay = document.createElement('div');
+      overlay.id = 'plugin-progress-modal';
+      // z-indexを極端に大きくして確実に最前面に
+      overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:2147483647; display:flex; justify-content:center; align-items:center;';
 
-    const title = document.createElement('h3');
-    title.style.cssText = 'margin:0 0 10px; color:#2c3e50;';
-    title.textContent = i18n.modal_title;
-    
-    const statusText = document.createElement('p');
-    statusText.id = 'plugin-progress-text';
-    statusText.style.cssText = 'color:#7f8c8d; font-size:14px; margin-bottom:5px;';
-    statusText.textContent = i18n.status_prepare;
+      const container = document.createElement('div');
+      container.style.cssText = 'background:#fff; padding:30px; border-radius:8px; text-align:center; min-width:450px; max-width:90%; box-shadow:0 10px 25px rgba(0,0,0,0.2);';
 
-    const barWrap = document.createElement('div');
-    barWrap.style.cssText = 'width:100%; background:#ecf0f1; height:10px; border-radius:5px; overflow:hidden; margin-bottom:15px;';
-    
-    const bar = document.createElement('div');
-    bar.id = 'plugin-progress-bar';
-    bar.style.cssText = 'width:0%; height:100%; background:#3498db; transition:width 0.3s;';
-    barWrap.appendChild(bar);
+      const title = document.createElement('h3');
+      title.style.cssText = 'margin:0 0 10px; color:#2c3e50;';
+      title.textContent = i18n.modal_title;
+      
+      const statusText = document.createElement('p');
+      statusText.style.cssText = 'color:#7f8c8d; font-size:14px; margin-bottom:5px; min-height:20px;';
+      statusText.textContent = i18n.status_prepare;
 
-    // エラー詳細表示エリア
-    const errorLogArea = document.createElement('div');
-    errorLogArea.id = 'plugin-error-log';
-    errorLogArea.style.cssText = 'display:none; text-align:left; background:#fdf0f0; border:1px solid #e74c3c; padding:10px; height:100px; overflow-y:auto; font-size:12px; color:#c0392b; margin-bottom:10px; border-radius:4px;';
+      const barWrap = document.createElement('div');
+      barWrap.style.cssText = 'width:100%; background:#ecf0f1; height:10px; border-radius:5px; overflow:hidden; margin-bottom:15px;';
+      
+      const bar = document.createElement('div');
+      // 初期状態で0%を明示的に設定
+      bar.style.cssText = 'width:0%; height:100%; background:#3498db; transition:width 0.3s ease;';
+      barWrap.appendChild(bar);
 
-    const errorCountText = document.createElement('p');
-    errorCountText.id = 'plugin-error-count';
-    errorCountText.style.cssText = 'color:#e74c3c; font-size:12px; margin-top:0; display:none; font-weight:bold;';
-    errorCountText.textContent = i18n.status_error.replace('{count}', '0');
+      // エラー詳細表示エリア
+      const errorLogArea = document.createElement('div');
+      errorLogArea.style.cssText = 'display:none; text-align:left; background:#fdf0f0; border:1px solid #e74c3c; padding:10px; height:100px; overflow-y:auto; font-size:12px; color:#c0392b; margin-bottom:10px; border-radius:4px;';
 
-    // 閉じるボタン（完了時用）
-    const closeBtn = document.createElement('button');
-    closeBtn.id = 'plugin-modal-close';
-    closeBtn.textContent = i18n.btn_close;
-    closeBtn.style.cssText = 'display:none; margin:0 auto; padding:8px 20px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;';
-    closeBtn.onclick = closeProgressModal;
+      const errorCountText = document.createElement('p');
+      errorCountText.style.cssText = 'color:#e74c3c; font-size:12px; margin-top:0; display:none; font-weight:bold;';
+      errorCountText.textContent = i18n.status_error.replace('{count}', '0');
 
-    container.append(title, statusText, barWrap, errorCountText, errorLogArea, closeBtn);
-    overlay.appendChild(container);
-    document.body.appendChild(overlay);
+      // 閉じるボタン（完了時用）
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = i18n.btn_close;
+      closeBtn.style.cssText = 'display:none; margin:0 auto; padding:8px 20px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;';
+      closeBtn.onclick = closeProgressModal;
+
+      container.appendChild(title);
+      container.appendChild(statusText);
+      container.appendChild(barWrap);
+      container.appendChild(errorCountText);
+      container.appendChild(errorLogArea);
+      container.appendChild(closeBtn);
+      overlay.appendChild(container);
+      document.body.appendChild(overlay);
+      
+      // グローバル変数に要素への参照を保存
+      modalElements = {
+        overlay: overlay,
+        progressText: statusText,
+        progressBar: bar,
+        errorLog: errorLogArea,
+        errorCount: errorCountText,
+        closeBtn: closeBtn
+      };
+      
+      console.log('[Plugin] Modal DOM appended to body, references saved');
+      
+      // 強制的に再描画を促す（ブラウザによっては必要）
+      overlay.offsetHeight; // リフロー強制
+      bar.offsetWidth; // リフロー強制
+
+      // レンダリング完了まで待機時間を増やす（300ms）
+      setTimeout(() => {
+        console.log('[Plugin] Modal should be visible now');
+        // 初期進捗を0%で明示的に表示
+        if (modalElements.progressBar) {
+          modalElements.progressBar.style.width = '0%';
+        }
+        resolve();
+      }, 300);
+    });
   };
 
+  /**
+   * エラーログをモーダルに追加
+   */
   const addErrorLog = (recordId, message) => {
-    const area = document.getElementById('plugin-error-log');
-    if(area) {
-      area.style.display = 'block';
-      const line = document.createElement('div');
-      line.textContent = `Record ID ${recordId}: ${message}`;
-      line.style.borderBottom = '1px solid #ecc';
-      line.style.padding = '2px 0';
-      area.appendChild(line);
+    if (!modalElements.errorLog) {
+      console.error('[Plugin] Error log area reference not available');
+      return;
     }
-  };
-
-  const updateProgress = (current, total, errorCount) => {
-    const text = document.getElementById('plugin-progress-text');
-    const bar = document.getElementById('plugin-progress-bar');
-    const errText = document.getElementById('plugin-error-count');
     
-    if (text) text.textContent = i18n.status_progress.replace('{current}', current).replace('{total}', total);
-    if (bar) bar.style.width = `${(current / total) * 100}%`;
-    if (errorCount > 0 && errText) {
-      errText.style.display = 'block';
-      errText.textContent = i18n.status_error.replace('{count}', errorCount);
-    }
+    modalElements.errorLog.style.display = 'block';
+    const line = document.createElement('div');
+    line.textContent = `Record ID ${recordId}: ${message}`;
+    line.style.borderBottom = '1px solid #ecc';
+    line.style.padding = '2px 0';
+    modalElements.errorLog.appendChild(line);
   };
 
+  /**
+   * 進捗バーを更新（直接参照を使用）
+   */
+  const updateProgress = (current, total, errorCount) => {
+    return new Promise((resolve) => {
+      if (!modalElements.progressText || !modalElements.progressBar) {
+        console.error('[Plugin] Progress elements reference not available');
+        setTimeout(resolve, 10);
+        return;
+      }
+
+      console.log(`[Plugin] Updating progress: ${current}/${total}, errors: ${errorCount}`);
+      
+      const percentage = Math.round((current / total) * 100);
+      
+      modalElements.progressText.textContent = i18n.status_progress.replace('{current}', current).replace('{total}', total);
+      modalElements.progressBar.style.width = `${percentage}%`;
+      
+      // 強制的に再描画
+      modalElements.progressBar.offsetWidth;
+      
+      if (errorCount > 0 && modalElements.errorCount) {
+        modalElements.errorCount.style.display = 'block';
+        modalElements.errorCount.textContent = i18n.status_error.replace('{count}', errorCount);
+      }
+
+      // setTimeoutでUIスレッドに処理を譲る（時間を増やす）
+      setTimeout(resolve, 100);
+    });
+  };
+
+  /**
+   * 完了ボタンを表示し、アラートを出す（アラートOK後に自動リロード）
+   */
   const finishProgress = () => {
-    const closeBtn = document.getElementById('plugin-modal-close');
-    if(closeBtn) closeBtn.style.display = 'block';
-    alert(i18n.alert_complete);
+    return new Promise((resolve) => {
+      if (!modalElements.closeBtn) {
+        console.error('[Plugin] Close button reference not available');
+        alert(i18n.alert_complete);
+        // アラートを閉じたらリロード
+        location.reload();
+        setTimeout(resolve, 10);
+        return;
+      }
+
+      console.log('[Plugin] Showing close button');
+      modalElements.closeBtn.style.display = 'block';
+      
+      // ボタン表示を確実にレンダリングしてからアラート
+      setTimeout(() => {
+        alert(i18n.alert_complete);
+        // アラートのOKボタンを押したら自動的にリロード
+        location.reload();
+        resolve();
+      }, 200);
+    });
   };
 
   const closeProgressModal = () => {
-    const el = document.getElementById('plugin-progress-modal');
-    if (el) document.body.removeChild(el);
+    if (modalElements.overlay && modalElements.overlay.parentNode) {
+      modalElements.overlay.parentNode.removeChild(modalElements.overlay);
+    }
+    modalElements = {
+      overlay: null,
+      progressText: null,
+      progressBar: null,
+      errorLog: null,
+      errorCount: null,
+      closeBtn: null
+    };
     location.reload();
   };
 
@@ -262,8 +367,16 @@
     btn.onmouseout = () => { btn.style.backgroundColor = '#3498db'; };
 
     btn.onclick = async () => {
-      if (!confirm(i18n.confirm_run)) return;
-      showProgressModal();
+      console.log('[Plugin] Bulk update button clicked');
+      if (!confirm(i18n.confirm_run)) {
+        console.log('[Plugin] User cancelled');
+        return;
+      }
+      
+      console.log('[Plugin] Starting bulk update process');
+      
+      // モーダル表示とDOM構築完了を待つ
+      await showProgressModal();
       
       if (Object.keys(fieldDefs).length === 0) {
          try {
@@ -296,6 +409,10 @@
 
       if (allRecords.length === 0) { closeProgressModal(); return alert(i18n.alert_no_target); }
 
+      // 処理開始前に初期進捗0%を表示
+      console.log('[Plugin] Displaying initial progress');
+      await updateProgress(0, allRecords.length, 0);
+
       const updatePayloads = [];
       allRecords.forEach(rec => {
         const updateData = { id: rec.$id.value, record: {} };
@@ -315,13 +432,18 @@
       });
 
       const total = updatePayloads.length;
+      console.log(`[Plugin] Total records to update: ${total}`);
+      
       for (let i = 0; i < total; i += 100) {
         const chunk = updatePayloads.slice(i, i + 100);
         const safeChunk = JSON.parse(JSON.stringify(chunk, (k, v) => v === undefined ? null : v));
+        
         try {
           await kintone.api(kintone.api.url('/k/v1/records', true), 'PUT', { app: appId, records: safeChunk });
           processedCount += chunk.length;
+          console.log(`[Plugin] Batch success: ${processedCount}/${allRecords.length}`);
         } catch (bulkErr) {
+          console.log('[Plugin] Batch error, retrying individually');
           // エラー時: 1件ずつリトライしてエラー箇所を特定
           for (const singleRec of safeChunk) {
             try {
@@ -332,13 +454,26 @@
               processedCount++; 
               // 画面にログ出力
               addErrorLog(singleRec.id, singleErr.message || JSON.stringify(singleErr));
+              console.error(`[Plugin] Error at record ${singleRec.id}:`, singleErr);
             }
-            updateProgress(processedCount, allRecords.length, errorCount);
+            
+            // 10件ごとに進捗更新（UIを確実に更新するため）
+            if (processedCount % 10 === 0) {
+              await updateProgress(processedCount, allRecords.length, errorCount);
+            }
           }
         }
-        updateProgress(processedCount, allRecords.length, errorCount);
+        
+        // チャンクごとに必ず進捗更新
+        await updateProgress(processedCount, allRecords.length, errorCount);
       }
-      finishProgress();
+      
+      // 最終的な進捗を確実に表示
+      await updateProgress(processedCount, allRecords.length, errorCount);
+      console.log('[Plugin] All updates complete');
+      
+      // 完了処理を確実に実行
+      await finishProgress();
     };
     space.appendChild(btn);
   });
